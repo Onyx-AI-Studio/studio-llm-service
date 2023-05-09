@@ -7,6 +7,7 @@ app = Flask(__name__)
 
 
 # os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"]="0.0"
+model_in_memory = ""
 
 # To check the if the API is up
 @app.route('/healthcheck', methods=['GET'])
@@ -19,14 +20,16 @@ def healthcheck():
 @app.route('/llm_initialize', methods=['GET'])
 def llm_initialize():
     if request.method == 'GET':
-        global tokenizer
-        global model
-        global device
+        global device, tokenizer, model, model_in_memory
 
-        # path = "bigscience/bloomz-560m"
+        path = "bigscience/bloomz-560m"
+        model_in_memory = path
         # path = "bigscience/bloomz-1b7"
         # path = "bigscience/bloomz-3b"
         # path = "bigscience/bloomz-7b1"
+
+        # path = "google/flan-t5-small"
+        # path = "google/flan-t5-base"
 
         # path = "declare-lab/flan-alpaca-large"
         # path = "declare-lab/flan-gpt4all-xl"
@@ -35,26 +38,35 @@ def llm_initialize():
         # path = "AlekseyKorshuk/vicuna-7b"
         # path = "TheBloke/stable-vicuna-13B-GPTQ"
         # path = "TheBloke/stable-vicuna-13B-HF"
-        path = "TheBloke/stable-vicuna-13B.ggml.q4"
+        # path = "TheBloke/stable-vicuna-13B.ggml.q4"
 
-        device = "mps"
-
-        print(f'Loading model started from path: {path}')
-
-        if "bloom" in path:
-            tokenizer = BloomTokenizerFast.from_pretrained(path)
-            model = BloomForCausalLM.from_pretrained(path, low_cpu_mem_usage=True)
-        elif "vicuna" in path:
-            tokenizer = AutoTokenizer.from_pretrained(path)
-            model = AutoModelForCausalLM.from_pretrained(path, low_cpu_mem_usage=True)
-        else:
-            tokenizer = AutoTokenizer.from_pretrained(path)
-            model = AutoModelForSeq2SeqLM.from_pretrained(path, low_cpu_mem_usage=True)
-
-        model.to(device)
-        print(f'Loading model finished...')
+        # load default model
+        load_model(path)
 
         return jsonify({'result': 'success'})
+
+
+def load_model(path):
+    global model, tokenizer, device, model_in_memory
+    device = "mps"
+
+    model_in_memory = path
+    print(f'Setting model_in_memory to: {model_in_memory}')
+
+    print(f'Loading model started from path: {path}')
+    if "bloom" in path:
+        tokenizer = BloomTokenizerFast.from_pretrained(path)
+        model = BloomForCausalLM.from_pretrained(path, low_cpu_mem_usage=True)
+        # Set the below parameter for low RAM usage
+        # model = BloomForCausalLM.from_pretrained(path, low_cpu_mem_usage=True)
+    elif "vicuna" in path:
+        tokenizer = AutoTokenizer.from_pretrained(path)
+        model = AutoModelForCausalLM.from_pretrained(path, low_cpu_mem_usage=True)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(path)
+        model = AutoModelForSeq2SeqLM.from_pretrained(path, low_cpu_mem_usage=True)
+    model.to(device)
+    print(f'Loading model finished...')
 
 
 # TODO: implement llm_save method functionality to handle other model types
@@ -75,7 +87,7 @@ def llm_save():
         return jsonify({'result': 'success'})
 
 
-def llm(input: str, is_full_prompt="False"):
+def llm(input: str, is_full_prompt="True"):
     print("LLM prediction started...")
     # generator = pipeline("text2text-generation", model, tokenizer, device=device)
     # print(f'Pipeline output: {generator(input, max_length=150, num_return_sequences=1)}')
@@ -112,12 +124,18 @@ Output:
     return decoded_output
 
 
+# TODO: replace all request.form to request.data
 @app.route('/llm_predict', methods=['POST'])
 def llm_predict():
     if request.method == 'POST':
-        data = request.form["utterance"]
-        is_full_prompt = request.form["is_full_prompt"]
-        result = llm(str(data), is_full_prompt)
+        utterance = request.json["utterance"]
+        llm_selected = request.json["llm_selected"]
+
+        if llm_selected != model_in_memory:
+            load_model(llm_selected)
+
+        # is_full_prompt = request.form["is_full_prompt"]
+        result = llm(utterance)
         return jsonify({'result': result})
 
 
