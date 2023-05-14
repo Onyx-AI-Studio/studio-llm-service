@@ -1,3 +1,5 @@
+import gc
+
 from flask import Flask, jsonify, request
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM, BloomTokenizerFast, \
     BloomForCausalLM
@@ -56,16 +58,19 @@ def load_model(path):
     print(f'Loading model started from path: {path}')
     if "bloom" in path:
         tokenizer = BloomTokenizerFast.from_pretrained(path)
-        model = BloomForCausalLM.from_pretrained(path, low_cpu_mem_usage=True)
+        model = BloomForCausalLM.from_pretrained(path)
         # Set the below parameter for low RAM usage
         # model = BloomForCausalLM.from_pretrained(path, low_cpu_mem_usage=True)
     elif "vicuna" in path:
         tokenizer = AutoTokenizer.from_pretrained(path)
-        model = AutoModelForCausalLM.from_pretrained(path, low_cpu_mem_usage=True)
+        model = AutoModelForCausalLM.from_pretrained(path)
+        # model = AutoModelForCausalLM.from_pretrained(path, low_cpu_mem_usage=True)
     else:
         tokenizer = AutoTokenizer.from_pretrained(path)
-        model = AutoModelForSeq2SeqLM.from_pretrained(path, low_cpu_mem_usage=True)
+        model = AutoModelForSeq2SeqLM.from_pretrained(path)
+        # model = AutoModelForSeq2SeqLM.from_pretrained(path, low_cpu_mem_usage=True)
     model.to(device)
+    gc.collect()
     print(f'Loading model finished...')
 
 
