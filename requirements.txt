@@ -6,3 +6,5 @@ accelerate
 torch==2.1.0.dev20230422
 torchaudio==2.0.0.dev20230313
 torchvision==0.16.0.dev20230422
+awscli
+boto3

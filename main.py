@@ -1,15 +1,18 @@
 import gc
+import os
+from pathlib import Path
 
 from flask import Flask, jsonify, request
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM, BloomTokenizerFast, \
-    BloomForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
+from transformers import BloomTokenizerFast, BloomForCausalLM
+import boto3
 
 # Creating a Flask app
 app = Flask(__name__)
 
-
 # os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"]="0.0"
 model_in_memory = ""
+
 
 # To check the if the API is up
 @app.route('/healthcheck', methods=['GET'])
@@ -80,6 +83,7 @@ def llm_save():
     if request.method == 'POST':
         print(f'Saving model started...')
         save_path = "/Users/snehalyelmati/Documents/models/"
+        # TODO: replace all request.form to request.data
         model_name = request.form["model_name"]
         tokenizer = BloomTokenizerFast.from_pretrained(model_name)
         model = BloomForCausalLM.from_pretrained(model_name)
@@ -129,7 +133,6 @@ Output:
     return decoded_output
 
 
-# TODO: replace all request.form to request.data
 @app.route('/llm_predict', methods=['POST'])
 def llm_predict():
     if request.method == 'POST':
@@ -142,6 +145,33 @@ def llm_predict():
         # is_full_prompt = request.form["is_full_prompt"]
         result = llm(utterance)
         return jsonify({'result': result})
+
+
+@app.route('/build_indices', methods=['POST'])
+def build_indices():
+    if request.method == 'POST':
+        s3_file_path = request.json["s3_file_path"]
+        conv_id = request.json["conversation_id"]
+
+        save_folder = '/Users/snehalyelmati/Documents/studio-llm-service/pdf_files'
+        save_path = Path(save_folder, conv_id)
+        print(f'save_path: {save_path}')
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+
+        filename = '_'.join(s3_file_path.split('/')[-1].split('_')[1:])
+        print(f'filename: {filename}')
+
+        s3 = boto3.client("s3")
+        s3.download_file('onyx-test-001', s3_file_path, Path(save_path, filename))
+        print(f'File downloaded from S3!')
+
+        # if llm_selected != model_in_memory:
+        #     load_model(llm_selected)
+        #
+        # # is_full_prompt = request.form["is_full_prompt"]
+        # result = llm(utterance)
+        return jsonify({'result': 'Success'})
 
 
 # driver function
