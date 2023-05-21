@@ -2,10 +2,19 @@ import gc
 import os
 from pathlib import Path
 
+import torch
 from flask import Flask, jsonify, request
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM
 from transformers import BloomTokenizerFast, BloomForCausalLM
+from transformers import pipeline
 import boto3
+from PyPDF2 import PdfReader
+
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.vectorstores import Chroma
+from langchain.embeddings.huggingface import HuggingFaceEmbeddings
+from langchain.chains.question_answering import load_qa_chain
+from langchain.llms import HuggingFacePipeline
 
 # Creating a Flask app
 app = Flask(__name__)
@@ -27,7 +36,7 @@ def llm_initialize():
     if request.method == 'GET':
         global device, tokenizer, model, model_in_memory
 
-        path = "bigscience/bloomz-560m"
+        path = "google/flan-t5-base"
         model_in_memory = path
         # path = "bigscience/bloomz-1b7"
         # path = "bigscience/bloomz-3b"
@@ -166,12 +175,39 @@ def build_indices():
         s3.download_file('onyx-test-001', s3_file_path, Path(save_path, filename))
         print(f'File downloaded from S3!')
 
+        pdf_reader = PdfReader(Path(save_path, filename))
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+        print(f'Number of characters read from the PDF: {len(text)}')
+
+        text_splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
+        texts = text_splitter.split_text(text)
+        print(f'Number of chunks for the selected PDF: {len(texts)}')
+
+        embeddings = HuggingFaceEmbeddings()
+        docsearch = Chroma.from_texts(texts, embeddings,
+                                      metadatas=[{"source": str(i)} for i in range(len(texts))]).as_retriever()
+        query = "What is the average years of experience for the group management committee members?"
+        docs = docsearch.get_relevant_documents(query)
+        print(f'Number of chunks in context: {len(docs)}')
+        print(docs)
+
+        pipe = pipeline("text2text-generation", model=model, tokenizer=tokenizer, max_length=100,
+                        device=torch.device("mps"))
+        local_llm = HuggingFacePipeline(pipeline=pipe)
+
+        chain = load_qa_chain(local_llm, chain_type="stuff")
+        query = "What is the average years of experience for the group management committee members?"
+        response = chain.run(input_documents=docs, question=query)
+        print(f'Query: {query}, Answer: {response}')
+
         # if llm_selected != model_in_memory:
         #     load_model(llm_selected)
         #
         # # is_full_prompt = request.form["is_full_prompt"]
         # result = llm(utterance)
-        return jsonify({'result': 'Success'})
+        return jsonify({'result': 'success', 'response': response})
 
 
 # driver function

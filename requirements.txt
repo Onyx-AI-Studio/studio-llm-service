@@ -8,3 +8,7 @@ torchaudio==2.0.0.dev20230313
 torchvision==0.16.0.dev20230422
 awscli
 boto3
+langchain
+pypdf2
+sentence_transformers
+chromadb
