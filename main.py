@@ -21,6 +21,7 @@ app = Flask(__name__)
 
 # os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"]="0.0"
 model_in_memory = ""
+index_persist_directory = '/Users/snehalyelmati/Documents/studio-llm-service/indices'
 
 
 # To check the if the API is up
@@ -186,28 +187,47 @@ def build_indices():
         print(f'Number of chunks for the selected PDF: {len(texts)}')
 
         embeddings = HuggingFaceEmbeddings()
-        docsearch = Chroma.from_texts(texts, embeddings,
-                                      metadatas=[{"source": str(i)} for i in range(len(texts))]).as_retriever()
-        query = "What is the average years of experience for the group management committee members?"
+        vectordb = Chroma.from_texts(texts, embeddings,
+                                     metadatas=[{"source": str(i)} for i in range(len(texts))],
+                                     persist_directory=index_persist_directory + "/" + conv_id)
+        # TODO: Save indices to S3 to cache the /build_indices call
+        vectordb.persist()
+        vectordb = None
+
+        return jsonify({'result': 'success'})
+
+
+@app.route('/get_answer_from_pdf', methods=['POST'])
+def get_answer_from_pdf():
+    if request.method == 'POST':
+        conv_id = request.json["conversation_id"]
+        query = request.json["query"]
+        llm_selected = request.json["llm_selected"]
+
+        if llm_selected != model_in_memory:
+            load_model(llm_selected)
+
+        embeddings = HuggingFaceEmbeddings()
+        docsearch = Chroma(persist_directory=index_persist_directory + "/" + conv_id,
+                           embedding_function=embeddings).as_retriever()
+
         docs = docsearch.get_relevant_documents(query)
         print(f'Number of chunks in context: {len(docs)}')
-        print(docs)
 
+        source_docs = []
+        for d in docs:
+            source_docs.append(d.page_content)
+        print(f'Source documents: {source_docs}')
+
+        # TODO: to make the model type dynamic
         pipe = pipeline("text2text-generation", model=model, tokenizer=tokenizer, max_length=100,
                         device=torch.device("mps"))
         local_llm = HuggingFacePipeline(pipeline=pipe)
-
         chain = load_qa_chain(local_llm, chain_type="stuff")
-        query = "What is the average years of experience for the group management committee members?"
         response = chain.run(input_documents=docs, question=query)
         print(f'Query: {query}, Answer: {response}')
 
-        # if llm_selected != model_in_memory:
-        #     load_model(llm_selected)
-        #
-        # # is_full_prompt = request.form["is_full_prompt"]
-        # result = llm(utterance)
-        return jsonify({'result': 'success', 'response': response})
+        return jsonify({'result': response, 'source_docs': source_docs})
 
 
 # driver function
